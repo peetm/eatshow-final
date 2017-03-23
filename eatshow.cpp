@@ -1,4 +1,3 @@
-
 /*
  * Find words in the RAL version of the Edinburgh Associative Thesaurus.
  * *** EATSHOW.C ***
@@ -8,7 +7,7 @@
  * 
  * June 1988
  * 
- * compile with:
+ * comlpile with:
  * 
  * cc eatshow.c
  * 
@@ -18,75 +17,100 @@
  * The number of words in the files may change if they are altered and
  * these values should also be altered in the define statements. 
  * ========================================================================
- * ************************************************************************
- * Altered June 2005 by peetm (peet.morris@comlab.ox.ac.uk/peet.morris@cslab.com).
- * Added some extra switches: (run the app with -h for full list)
  *
- * Also added the ability for the program to be passed a series of words at the
- * commandline.
+ *
+ * ************************************************************************
+ * Modified summer 2005 by peetm (peet.morris@cslab.com).
+ *
+ * Added some extra switches: (run the app with -h for full list),  and made 
+ * it a little more C++ like (but not much - no need to fix it!). Also added
+ * the ability for  the  program to be  passed a series of words/switches at
+ * the commandline.
  *
  * compile with: gcc -Wall, cl -W4, icl -Wall etc - gcc eatshow.cpp
  * ************************************************************************
- * ========================================================================
+ *
+ *
  */
 
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include <stdlib.h>
+#include <stdarg.h>
+
 
 // Forward declarations.
 //
 static void doFileCloseOpen(char, FILE **, FILE **, int *);
-static bool toggleDataBaseCheck(char *);
-static void out(char *, int, float);
-static bool nothingEntered(char *);
+static void out(int opt, const char * format, ...);
+static void toggleDataBase(void);
 static void checkForWord(char *);
 static void checkInitRun(void);
-static void fromFile(char *);
-static bool dumpWords(char *);
 static void actOnFlag(char *);
+static void fromFile(char *);
 static void resetFlags(void);
+static void dumpWords(void);
 static void trimLF(char *);
 static void trim(char *);
 static void about(void);
 static void usage(void);
 
-static const char * const SRFILE  = "./sr_concise";  /* file containing s-r data */
-static const char * const RSFILE  = "./rs_concise";  /* file containing r-s data */
-static const char * const SRINDEX = "./sr_index";    /* s-r index file           */
-static const char * const RSINDEX = "./rs_index";    /* r-s index file           */
 
-static const int SRLENGTH = 8211;        /* number of headwords in s-r data                    */
-static const int RSLENGTH = 22776;       /* number of headwords in r-s data                    */
-static const int MAXBUF   = 10000;       /* Maximum buffer size for words or association lists */
+// Consts.
+//
+static const char * const SRFILE  = "./sr_concise";         /* file containing s-r data                             */
+static const char * const RSFILE  = "./rs_concise";         /* file containing r-s data                             */
+static const char * const SRINDEX = "./sr_index";           /* s-r index file                                       */
+static const char * const RSINDEX = "./rs_index";           /* r-s index file                                       */
 
-static const int WORD_FOUND = 0;         /* 'cue' found in the database             */
+                                                            /* Constants to use with the out() function             */
+static const int out_std   = 1;                             /* stdout output                                        */
+static const int out_err   = 2;                             /* stderr output                                        */
+static const int out_fle   = 4;                             /* echo file output (if given)                          */
+static const int out_reg   = out_std | out_fle;             /* stdout and echo file output (if given)               */
+static const int opt_all   = out_err | out_std | out_fle;   /* all of the above                                     */
 
-static char sourcef  = 's';              /* default source file is srfile           */
-static bool bTabPad  = false;            /* use tabs defaults to false              */
-static bool bNumber  = false;            /* number the ouputs                       */
-static bool binitRun = true;             /* first run of this application?          */
-static bool bDemark  = true;             /* demark (~~~~) results?                  */
-static bool bLimit   = false;            /* limit output to nLimit entries?         */
+static const int SRLENGTH = 8211;                           /* number of headwords in s-r data                      */
+static const int RSLENGTH = 22776;                          /* number of headwords in r-s data                      */
+static const int MAXBUF   = 10000;                          /* Maximum buffer size for words or association lists   */
+static const int MAXPATH  = 260;
 
-static int nLimit    = 0;
+static const int WORD_FOUND = 0;                            /* 'cue' found in the database                          */
 
-static char * echoFile = NULL;           /* default file to echo to is NULL         */
-static char * inptFile = NULL;           /* file to read instructions from          */
 
-static FILE * fp  = NULL;                /* main db file                            */
-static FILE * fp1 = NULL;                /* index file for whatever fp points to    */
+// Vars.
+
+static char sourcef  = 's';                                 /* default source file is srfile                        */
+static bool tabPad   = false;                               /* use tabs defaults to false                           */
+static bool number   = false;                               /* number the ouputs                                    */
+static bool initRun  = true;                                /* first run of this application?                       */
+static bool demark   = true;                                /* demark (~~~~) results?                               */
+static bool limit    = false;                               /* limit output to nLimit entries?                      */
+
+static int numLimit    = 0;
+
+static char * inptFile = NULL;                              /* file to read instructions from                       */
+
+static FILE * echoFP = NULL;                                /* echoFile's file handle                               */
+static FILE * fp     = NULL;                                /* main db file                                         */
+static FILE * fp1    = NULL;                                /* index file for whatever fp points to                 */
 
 static int index_length = 0;
-    
+
+
+#define RECURSIVE_GUARD
+ 
+   
 // Entry point.
 //
 int main(int argc, char * argv[])
 {
-    auto int i;
-            
-    // Is this the first time this app's been run from this location?  Sets the global 'binitRun' to the result.
+    auto int i = 0;
+    
+    auto char cue[MAXBUF]; 
+
+        
+    // Is this the first time this app's been run from this location?  Sets the global 'initRun' to the result.
     //
     checkInitRun();
 
@@ -102,13 +126,12 @@ int main(int argc, char * argv[])
         }
         else
         {
-            // ** Valid 'initial' switches come before non-switches (words) and runtime
-            // switches like -sw (which, for -sw, should come after a word really).  
-            // We break out of the for loop when/if we hit the first non-switch.
+            // ** Valid 'initial' switches come before non-switches (words) 
+            // We break out of the for loop when/if we hit the first non-wsitch.
             //
-            // e.g., consider: eatshow -ftest.txt -n -r man -sw man
+            // e.g., consider: eatshow -ftest.txt -n -r man -w man
             //
-            // Here, -f -n and -r will be processed, but -sw won't [at this time] -
+            // Here, -f -n and -r will be processed, but -w won't [at this time] -
             // the break below will happen when 'man' is seen.
             //
             break;
@@ -120,11 +143,6 @@ int main(int argc, char * argv[])
     //
     doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
     
-    // The leading switches are done - but are there are other args? They
-    // should be words or the -switch dbs' flag if there are.
-    //
-    auto char cue[MAXBUF]; 
-
     // i was set up in the for loop above - that loop may have exited before it
     // reached argc's value - see ** for why.
     //
@@ -139,21 +157,29 @@ int main(int argc, char * argv[])
             checkForWord(argv[i++]);
         }
         
+        // Mostly used here as it'll close echoFP if it's open.
+        //
+        resetFlags();
+        
         // Exit as we're all done in commandline mode.
         //
-        return 0;
+        return EXIT_SUCCESS;
     }
     else
-    {
+    {   
         // As printf returns the number of chars output, it works quite well
         // when used in an && like this.
         //
-        while(printf("Enter a word>") && !nothingEntered(gets(cue)))
+        while(printf("Enter a word>") && fgets(cue, sizeof(cue), stdin) && strlen(cue) != 1)
         {
             checkForWord(cue);
         }
         
-        return 0;
+        // Mostly used here as it'll close echoFP if it's open.
+        //
+        resetFlags();
+        
+        return EXIT_SUCCESS;
     }
 }
 
@@ -177,16 +203,16 @@ static void doFileCloseOpen(char sourcef, FILE ** fp, FILE ** fp1, int * index_l
     {
         if((*fp = fopen(SRFILE, "r")) == NULL)
         {
-            fprintf(stderr, "cannot access the file: %s\n", SRFILE);
+            out(out_err, "cannot access the file: %s\n", SRFILE);
             
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         if((*fp1 = fopen(SRINDEX, "r")) == NULL)
         {
-            fprintf(stderr, "cannot access the file: %s\n", SRINDEX);
+            out(out_err, "cannot access the file: %s\n", SRINDEX);
             
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         *index_length = SRLENGTH;
@@ -196,16 +222,16 @@ static void doFileCloseOpen(char sourcef, FILE ** fp, FILE ** fp1, int * index_l
     {
         if((*fp = fopen(RSFILE, "r")) == NULL)
         {
-            fprintf(stderr, "cannot access the file: %s\n", RSFILE);
+            out(out_err, "cannot access the file: %s\n", RSFILE);
             
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         if((*fp1 = fopen(RSINDEX, "r")) == NULL)
         {
-            fprintf(stderr, "cannot access the file: %s\n", RSINDEX);
+            out(out_err, "cannot access the file: %s\n", RSINDEX);
             
-            exit(1);
+            exit(EXIT_FAILURE);
         }
 
         *index_length = RSLENGTH;
@@ -216,63 +242,42 @@ static void doFileCloseOpen(char sourcef, FILE ** fp, FILE ** fp1, int * index_l
 
 
 
-// Used to output stuff to the screen and, optionally, to a file.
-//
-static void out(char * out1, int count, float prop)
-{
-    auto const char * format = NULL;
-    
-    // Determine whether to use spaces or tabs in the output.
-    //    
-    format = bTabPad ? "%s\t%d\t%.2f\n" : "%-25s %3d %5.2f\n";
-    
-    printf(format, out1, count, prop);
-    
-    // Been given a file name to echo output to?
-    //
-    if(echoFile != NULL)
-    {
-        // YES.
-        
-        auto FILE * ech = NULL;
-        
-        if((ech = fopen(echoFile, "a")) != NULL)
-        {
-            fprintf(ech, format, out1, count, prop);
-        }
-        fclose(ech);
-    }    
-    
-    return;
-}                        
-
-
-
 // The functionally 'main' routine - checks in the index/data files for relevant data and outputs it.
 //
 static void checkForWord(char * cue)
 {
-    auto int count;
-    auto int fail     = 3;  // 3 = 'cue' word not found.
-    auto int tot_rec  = 0;
-    auto int tot_freq = 0;
-    
-    auto float prop   = 0;
-    
-	auto long int tail_address = 0;
-    auto long int head_address = 0;
 
-    auto char * out1;
-    auto char * out2;
+    auto int fail               = 3;  // 3 = 'cue' word not found.
+    auto int tot_rec            = 0;
+    auto int tot_freq           = 0;
+    auto int count              = 0;
+    auto int limitCount         = 0;    
+    
+    auto float prop             = 0;
+    
+    auto long int tail_address  = 0;
+    auto long int head_address  = 0;
+
+    auto char * out1            = NULL;
+    auto char * out2            = NULL;
+
+    auto char * tmp_p           = NULL;
+        
     auto char response_word[MAXBUF];
     auto char index_word   [MAXBUF];    
+    auto char buffer[100];
     
+    const char * format         = tabPad ? "%s\t%d\t%.2f\n" : "%-25s %3d %5.2f\n";
+
+            
     doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
     
-    // Check that cue isn't either the 'toggle db' or 'dump index words' flags.
+    // If it's a switch, don't go further here as actOnFlag should set stuff up etc.
     //
-    if(toggleDataBaseCheck(cue) || dumpWords(cue))
+    if(*cue == '-')
     {
+        actOnFlag(cue);
+        
         return;
     }
     
@@ -280,7 +285,7 @@ static void checkForWord(char * cue)
     
     strupr(cue);
 
-    printf("\nLooking for: %s in %s MODE\n\n", cue, sourcef == 'r' ? "RESPONSE" : "STIMULUS");
+    out(out_std, "\nLooking for: %s in %s MODE\n\n", cue, sourcef == 'r' ? "RESPONSE" : "STIMULUS");
     
     while(!feof(fp1))
     { 
@@ -310,81 +315,95 @@ static void checkForWord(char * cue)
 
     if(fail != 0)
     {
-        printf("eatshow: %s: not found\n", cue);
+        out(out_std, "eatshow: %s: not found\n", cue);
     }
     else // We found 'cue' - w00t!
-    {
+    {   
         if(fseek(fp, tail_address, 0) != -1)
         {
             if(fgets(response_word, MAXBUF, fp) == NULL)
             {
-                printf("eatshow: %ld: bad address index file\n", tail_address);
+                out(out_err, "eatshow: %ld: bad address index file\n", tail_address);
             }
             else
             {         
-                auto int nCount = 0;
-                
                 out1 = NULL;
                 
-                if(bDemark)
+                if(demark)
                 {
-                    puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    out(out_std, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
                 }
-                
-                while(out1 = strtok(out1 == NULL ? response_word :  (char *) 0  , "|"))
-                {
-                    out2 = strtok((char *) 0, "|");
-                    
-                    count = atoi(out2);
 
-                    // Limit the output to nLimit entries?
+                // BUG FIX:
+                //
+                // Occasionally response_word contains multiple delimiters, e.g. FAIL||1 instead of FAIL|1.
+                // This causes *** below to crash.  This is a work around to remove duplicate ||s
+                //
+                while((tmp_p = strstr(response_word, "||")) != NULL)
+                {
+                    *tmp_p++ = (char)32;
+                    *tmp_p   = (char)32;
+                }
+
+                while(out1 = strtok(out1 == NULL ? response_word : (char *)0, "|"))
+                {
+                    out2 = strtok((char *)0, "|");
+                 
+                    // ***
                     //
-                    if(bLimit)
+                    count = strtol(out2, (char **)NULL, 10);
+
+                    // Limit the output to numLimit entries?
+                    //
+                    if(limit)
                     {
-                        if(nCount >= nLimit)
+                        if(limitCount >= numLimit)
                         {
                             break;
                         }
                     }
                 
-                    auto char buffer[100];
-
+                    ++limitCount;                    
+                    
                     // Number the outputs?
                     //
-                    if(bNumber)
+                    if(number)
                     {
-                        ++nCount;
-        
-                        sprintf(buffer, "%4d: %s", nCount, out1);
+                        sprintf(buffer, "%4d: %s", limitCount, out1);
                                         
-                        prop = ((float) count / (float) tot_freq);
-                                        
-                        out(buffer, count, prop);
+                        prop = ((float)count / (float)tot_freq);
+
+                        // Determine whether to use spaces or tabs in the output.
+                        //    
+
+                        out(echoFP != NULL ? out_reg | out_fle : out_reg, format, buffer, count, prop);
                     }
                     else
                     {
                         sprintf(buffer, "      %s", out1);
 
-                        out(buffer, count, prop);
+                        format = tabPad ? "%s\t%d\t%.2f\n" : "%-25s %3d %5.2f\n";
+
+                        out(echoFP != NULL ? out_reg | out_fle : out_reg, format, buffer, count, prop);                        
                     }
                 }
                 
-                if(bDemark)
+                if(demark)
                 {
                     puts("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                 }
 
-                printf("\n\t%s %s\n\n", cue, sourcef == 'r' ? "was [one of] the 'response(s)' to the stimulli above" : "was [one of] the 'stimuli' to the responses above");
+                out(out_std, "\n\t%s %s\n\n", cue, sourcef == 'r' ? "was [one of] the 'response(s)' to the stimulli above" : "was [one of] the 'stimuli' to the responses above");
                     
-                printf("\tNumber of different answers: %d\n", tot_rec);
+                out(out_std, "\tNumber of different answers: %d\n", tot_rec);
                 
-                printf("\t Total count of all answers: %d\n\n", tot_freq);
+                out(out_std, "\t Total count of all answers: %d\n\n", tot_freq);
                 
             }
         }
         else
         {
-            printf("eatshow: %ld: bad address index file\n", tail_address);
+            out(out_std, "eatshow: %ld: bad address index file\n", tail_address);
         }
             
         rewind(fp1);
@@ -395,51 +414,26 @@ static void checkForWord(char * cue)
 
 
 
-// Toggles the database being used (Response/Stimulus) if passed '-sw'.
+// Toggles the database being used (Response/Stimulus).
 //
-// Returns: true if the database was toggled, else false.
-//
-static bool toggleDataBaseCheck(char * cue)
+static void toggleDataBase(void)
 {
-    if(!strcmp(cue, "-sw"))
+    if(sourcef == 's')
     {
-        if(sourcef == 's')
-        {
-            puts("\t>>Mode switched from Stimulus to Response");
-            
-            sourcef = 'r';
-        }
-        else
-        {
-            puts("\t>>Mode switched from Response to Stimulus");
-                        
-            sourcef = 's';
-        }
+        out(out_std, "\t>>Mode switched from Stimulus to Response\n");
         
-        return true;
-    }    
-    else
-    {
-        return false;
-    }
-}
-
-
-
-// Checks for s being either NULL (a null pointer) or *s being NULL (obviously, it does this latter
-// check first!
-//
-static bool nothingEntered(char * s)
-{
-    if( s == NULL || *s == '\0')
-    {
-        return true;
+        sourcef = 'r';
     }
     else
     {
-        return false;
+        out(out_std, "\t>>Mode switched from Response to Stimulus\n");
+                    
+        sourcef = 's';
     }
+    
+    return;
 }
+
 
 
 
@@ -453,30 +447,31 @@ static bool nothingEntered(char * s)
 //
 static void checkInitRun(void)
 {
-    auto FILE * fpCheck;
+    auto FILE * fpCheck = NULL;
+    
     
     // Is this the first time this app has been run (from this folder)?
     //
-    binitRun = (fpCheck = fopen("es.log", "r")) == NULL ? true : false;
+    initRun = (fpCheck = fopen("es.log", "r")) != NULL;
     
     // Flag the fact that we've been run by writing out a log file.
-    // binitRun used later to give some 'first time' guidance.
+    // initRun used later to give some 'first time' guidance.
     //
-    if(binitRun)
+    if(!initRun)
     {
         if((fpCheck = fopen("es.log", "a")) != NULL)
         {
-            fprintf(fpCheck, "eatshow run at %s %s\n", __DATE__, __TIME__);
+            fprintf(fpCheck, "eatshow initially run on this machine on %s %s\n", __DATE__, __TIME__);
             
-            // Could leave this open at only close it as main() is about to exit.
+            // Could leave this open and only close it as main() is about to exit.
             // Could be useful for various logging thingmys?
             //
             fclose(fpCheck);
         }
         
-        fprintf(stderr, "============================================\n");
-        fprintf(stderr, "Use eatshow -? for help on this application.\n");
-        fprintf(stderr, "============================================\n");        
+        out(out_err, "==================================================================\n");
+        out(out_err, "Use eatshow -? at the command prompt for help on this application.\n");
+        out(out_err, "==================================================================\n");        
     }
     else
     {
@@ -490,43 +485,46 @@ static void checkInitRun(void)
 
 // Produces a raw dump of the words in the current db's index file - numbers the output.
 //
-static bool dumpWords(char * cue)
+static void dumpWords(void)
 {
-    if(!strcmp(cue, "-x"))
+    auto char index_word[MAXBUF];    
+    
+    auto int  ndummy  = 0;
+    auto long lcount  = 0;
+    
+    
+    doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
+    
+    while(!feof(fp1))
     {
-        auto char index_word[MAXBUF];    
-        
-        auto int  ndummy  = 0;
-        auto long lcount  = 0;
-        
-        doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
-        
-        while(!feof(fp1))
+        if(fgets(index_word, 21, fp1) == NULL)
         {
-            if(fgets(index_word, 21, fp1) == NULL)
-            {
-                break;
-            }
-    
-            if(fscanf(fp1, "%d %d %d %d\n", &ndummy, &ndummy, &ndummy, &ndummy) != 4)
-            {
-                break;
-            }
-    
-            trim(index_word);
-            
-            printf("%5ld: %s\n", ++lcount, index_word);
+            break;
         }
 
-        printf("\nAlthough %ld entries were listed, as this is a raw dump of the index,\n", lcount);
-        puts("the output will contain a number of duplicates.");
-    
-        rewind(fp1);     
+        if(fscanf(fp1, "%d %d %d %d\n", &ndummy, &ndummy, &ndummy, &ndummy) != 4)
+        {
+            break;
+        }
+
+        trim(index_word);
         
-        return true;
+        ++lcount;
+        
+        if(number)
+        {
+            out(echoFP != NULL ? out_reg | out_fle : out_reg, "%5ld: %s\n", lcount, index_word);
+        }
+        else
+        {
+            out(echoFP != NULL ? out_reg | out_fle : out_reg, "%s\n", index_word);
+        }
     }
-    
-    return false;
+
+    out(out_err, "\nAlthough %ld entries were listed, as this is a raw dump of the index,\n", lcount);
+    out(out_err, "the output will contain a number of duplicates.");
+
+    rewind(fp1);     
 }
 
 
@@ -534,7 +532,8 @@ static bool dumpWords(char * cue)
 
 static void about(void)
 {
-    char timeBuff[sizeof(__TIME__) + 1];
+    auto char timeBuff[sizeof(__TIME__) + 1];
+    
 
     // Get rid of the seconds info.
     //    
@@ -544,35 +543,37 @@ static void about(void)
     //
     timeBuff[5] = '\0';
     
-    puts("");
-    puts("  ============================================================================");
-    puts("    See http://www.eat.rl.ac.uk/");
-    puts("");
-    puts("    Modified the original source at the URL - mainly to add the -sw -t -f -n");
-    puts("    options for my own use.\n\n\tpeetm - peet.morris@comlab.ox.ac.uk");
-    puts("");
-    printf("\t\t\tLast built: %s at %s", __DATE__, timeBuff);    
-    puts("");
-    puts("  ============================================================================");
-    puts("");
-    puts("  Some 'option' examples:");
-    puts("");    
-    puts("    eatshow -n          ... numbers the results");
-    puts("");    
-    puts("    eatshow -ftest.txt  ... echo output to the file test.txt: file is appended");
-    puts("                            to if it exists, or created anew if it does not");
-    puts("");    
-    puts("    eatshow man -sw man ... starts eatshow in non-interactive mode: first");
-    puts("                            outputs the responses when 'man' was used as a");
-    puts("                            stimuli, then toggles (-sw) eatshow into response");
-    puts("                            mode, in which the output lists words which were");
-    puts("                            used as a stimulus, and where 'man' was a response");
-    puts("");
-    puts("    eatshow -r -t       ... starts eatshow in response mode, and instructs");
-    puts("                            it to use tabs instead of spaces in its layouts");    
-    puts("");    
+    out(out_std, "\n");
+    out(out_std, "  ============================================================================\n");
+    out(out_std, "  eatshow v1.1.6\n");
+    out(out_std, "\n\t\t\tLast built: %s at %s\n\n\n", __DATE__, timeBuff);    
+    out(out_std, "    See http://www.eat.rl.ac.uk/ for the original source and information.\n");
+    out(out_std, "\n");
+    out(out_std, "    Modified the original source at the URL - mainly to add the -ws -t -f -n\n");
+    out(out_std, "    options for my own use.\n\n\tpeetm - peet.morris@comlab.ox.ac.uk\n");
+    out(out_std, "\n");
+    out(out_std, "\n");
+    out(out_std, "  ============================================================================\n");
+    out(out_std, "\n  Hit Enter for more...\n");
+    getchar();
+    out(out_std, "  Some 'option' examples:\n");
+    out(out_std, "\n");    
+    out(out_std, "    eatshow -n          ... numbers the results\n");
+    out(out_std, "\n");    
+    out(out_std, "    eatshow -ftest.txt  ... echo output to the file test.txt: file is appended\n");
+    out(out_std, "                            to if it exists, or created anew if it does not\n");
+    out(out_std, "\n");    
+    out(out_std, "    eatshow man -w man  ... starts eatshow in non-interactive mode: first\n");
+    out(out_std, "                            outputs the responses when 'man' was used as a\n");
+    out(out_std, "                            stimuli, then toggles (-w) eatshow into response\n");
+    out(out_std, "                            mode, in which the output lists words which were\n");
+    out(out_std, "                            used as a stimulus, and where 'man' was a response\n");
+    out(out_std, "\n");
+    out(out_std, "    eatshow -r -t       ... starts eatshow in response mode, and instructs\n");
+    out(out_std, "                            it to use tabs instead of spaces in its layouts\n");    
+    out(out_std, "\n");    
 
-    exit(1);    
+    return;;    
 }
 
 
@@ -581,38 +582,40 @@ static void about(void)
 // print proper usage and exit 
 //
 static void usage(void)
-{                               
-    puts("Usage: eatshow [-a -d -f -i -n -r -s -sw -t -x -?] [word_list]");
-    puts("Find associates to words in the Edinburgh Associative Thesaurus");
-    puts("");    
-    puts("Outputs:");
-    puts("\tThe total number of different answers, the count of");
-    puts("\tall answers,  and  the list of triads of associated");
-    puts("\ttypes, their individual frequencies, and proportion");
-    puts("\tof occurrence.   The proportion of occurrence for a");
-    puts("\tgiven type is its individual  frequency  divided by");
-    puts("\tthe total count of all answers.");
-    puts("");    
-    puts("Switches:");
-    puts("\t-a \t further info about this application");
-    puts("\t-d \t turn off results demarcation");    
-    puts("\t-f<file> echo screen output to a file");
-    puts("\t-i<file> reads/processes input from a file a line at a time");
-    puts("\t-l<n>\t limits the number of outputs to <n>");
-    puts("\t-n \t number outputs");
-    puts("\t-r \t use cue as response");
-    puts("\t-s \t use cue as stimulus(default)");
-    puts("\t-sw\t toggles the -r/-s mode [without restart] (runtime switch)");
-    puts("\t-t \t tab-delimit output [default is to use spaces]");
-    puts("\t-x \t dumps the index wordlist for the current mode (runtime switch)");
-    puts("\t-? \t display these options");
-    puts("");    
-    puts("NOTE: If -i or a word_list is used, eatshow does not enter interactive mode");
-    puts("");
-    puts("In interactive mode, to return to the command prompt, simply hit return");
-    puts("(do not enter a word). Alternately, enter Ctrl + Z");
+{         
+    out(out_std, "Usage: eatshow [-a -d -f -i -n -r -s -w -t -x -?] [word_list]\n");
+    out(out_std, "Find associates to words in the Edinburgh Associative Thesaurus\n");
+    out(out_std, "\n");    
+    out(out_std, "Outputs:\n");
+    out(out_std, "\tThe total number of different answers, the count of\n");
+    out(out_std, "\tall answers,  and  the list of triads of associated\n");
+    out(out_std, "\ttypes, their individual frequencies, and proportion\n");
+    out(out_std, "\tof occurrence.   The proportion of occurrence for a\n");
+    out(out_std, "\tgiven type is its individual  frequency  divided by\n");
+    out(out_std, "\tthe total count of all answers.\n");
+    out(out_std, "\n");    
+    out(out_std, "Switches:\n");
+    out(out_std, "\t-a \t further info about this application\n");
+    out(out_std, "\t-d \t turn off results demarcation\n");    
+    out(out_std, "\t-f<file> echo screen output to a file\n");
+    out(out_std, "\t-i<file> reads/processes input from a file a line at a time\n");
+    out(out_std, "\t-l<n>\t limits the number of outputs to <n>\n");
+    out(out_std, "\t-n \t number outputs\n");
+    out(out_std, "\t-r \t use cue as response\n");
+    out(out_std, "\t-s \t use cue as stimulus(default)\n");
+    out(out_std, "\t-w \t toggles the -r/-s mode [without restart]\n");
+    out(out_std, "\t-t \t tab-delimit output [default is to use spaces]\n");
+    out(out_std, "\t-x \t dumps the index wordlist for the current mode\n");
+    out(out_std, "\t-? \t display these options\n");
+    out(out_std, "[MORE]");
+    getchar();
+    out(out_std, "\n");    
+    out(out_std, "NOTE: If -i or a word_list is used, eatshow does not enter interactive mode\n");
+    out(out_std, "\n");
+    out(out_std, "In interactive mode, to return to the command prompt, simply hit return\n");
+    out(out_std, "(do not enter a word). Alternately, enter Ctrl + Z\n");
     
-    exit(1);
+    exit(EXIT_SUCCESS);
 }
 
 
@@ -622,7 +625,8 @@ static void usage(void)
 //
 static void trimLF(char * string)
 {
-    auto char * p;
+    auto char * p = NULL;
+    
     
     if((p = strchr(string, (char)10)) != NULL)
     {
@@ -639,7 +643,8 @@ static void trimLF(char * string)
 //
 static void trim(char * string)
 {
-    auto char * p;
+    auto char * p = NULL;
+    
     
     if((p = strchr(string, (char)' ')) != NULL)
     {
@@ -657,10 +662,14 @@ static void actOnFlag(char * f)
 {                                  
     f++;
     
-    switch(*f++)
+    switch(*strlwr(f++))
     {
         case 's':                   // read s-r file.
             sourcef = 's';
+            break;
+        
+        case 'w':
+            toggleDataBase();
             break;
             
         case 'r':
@@ -670,12 +679,41 @@ static void actOnFlag(char * f)
         case 'f':                   // echo to file.
             if(*f != '\0')
             {
-                echoFile = f;
+                if(strlen(f) != 0)
+                {
+                    // Close the current echo file if we've got one.
+                    //
+                    if(echoFP != NULL)
+                    {
+                        fclose(echoFP);
+                    }
+    
+                    echoFP = NULL;
+
+                    // fopen doesn't like a \n in f.
+                    //
+                    if(strstr(f, "\n"))
+                    {
+                        *strstr(f, "\n") = '\0';
+                    }
+
+                    echoFP = fopen(f, "a");
+                    
+                    if(!echoFP)
+                    {
+                        out(out_err, "file %s could not be opened!\n", f);
+                    }
+                    else
+                    {
+                        out(out_err, "echo file -> %s opened successfully\n", f);
+                    }
+                }        
             }
             break;
                         
         case 't':                   // tab output.
-            bTabPad = true;
+            tabPad = !tabPad;
+            out(out_err, "tab mode -> %s\n", tabPad ? "true" : "false");
             break;
     
         case 'a':                   // show 'about'.
@@ -683,20 +721,32 @@ static void actOnFlag(char * f)
             break;
             
         case 'd':                   // add demarcation lines.
-            bDemark = false;
+            demark = !demark;
+            out(out_err, "demark mode -> %s\n", demark ? "true" : "false");
             break;
 
         case 'n':                   // number outputs.
-            bNumber = true;
+            number = !number;
+            out(out_err, "number mode -> %s\n", number ? "true" : "false");
+            break;
+            
+        case 'x':
+            dumpWords();
             break;
             
         case 'l':                   // limit the number of outputs.
+            limit  = !limit;
+            
             if(*f != '\0')
             {
-                bLimit  = true;
-                nLimit  = atoi(f);
-                bNumber = true;
+                numLimit  = strtol(f, (char **)NULL, 10);
+                
+                if(numLimit > 0)
+                {
+                    limit = true;
+                }
             }
+            out(out_err, "limit mode -> %s (%d)\n", limit ? "true" : "false", numLimit);
             break;
 
         case '?':                   // show usage.
@@ -707,18 +757,16 @@ static void actOnFlag(char * f)
             if(*f != '\0')
             {
                 fromFile(f);
-                exit(0);            // close here.
+                
+                exit(EXIT_SUCCESS); // close here.
             }
             break;
             
         case NULL:                  // error.
             usage();
-            exit(1);
             break;
             
         default:
-            usage();
-            exit(1);
             break;            
     }
     
@@ -738,16 +786,16 @@ static void actOnFlag(char * f)
 void fromFile(char * s)
 {
     auto FILE * fp = NULL;
+    
 
     if((fp = fopen(s, "r")) != NULL)
     {
-        auto char * argv[10];
-        auto int    argc = 0;        
-        
         auto char   buffer[255];
-        auto char * p = NULL;
-
-        auto int    n = 0;
+        auto char * argv[10];
+        
+        auto int    argc    = 0;        
+        auto int    n       = 0;
+        auto char * p       = NULL;
 
         // argv[0] is always the appname.
         //
@@ -761,27 +809,39 @@ void fromFile(char * s)
             //
             if(fgets(&buffer[0], 255, fp))
             {
-                // is there a lf or a cr on a seperate line?
+                // Is there a lf or a cr on a seperate line?
                 //
-			    if(strlen(buffer) == 1)
+                if(strlen(buffer) == 1)
                 {
                     // Yes, ignore.
                     //
                     continue;
                 }
-            
+                        
+                #ifdef RECURSIVE_GUARD
+
+                // Protect against recursing to death?  We're reading a file, and we really
+                // wouldn't like that file to contain another -i reference to ourselves.
+                //
+                if(strstr(buffer, "-i"))
+                {
+                    continue;
+                }
+
+                #endif
+
                 // +++ This bit now parses the line, and creates the argv array.
                 //
-            	p = strtok(&buffer[0], " ");
+                p = strtok(&buffer[0], " ");
 
-				while(p && argc != 10)
-				{
+                while(p && argc != 10)
+                {
                     argv[++argc] = (char *)malloc(strlen(p) + 1);
                     
                     strcpy(argv[argc], p);
 
-					p = strtok(NULL, " ");
-				}
+                    p = strtok(NULL, " ");
+                }
 
                 // +++
                 
@@ -810,7 +870,7 @@ void fromFile(char * s)
     }
     else
     {
-        printf("Error opening %s\n", s);
+        out(out_err, "Error opening %s\n", s);
     }
     
     return;
@@ -823,15 +883,93 @@ void fromFile(char * s)
 //
 static void resetFlags(void)
 {
-    echoFile = NULL;
-    inptFile = NULL;
-    bTabPad  = false;
-    bDemark  = true;
-    bNumber  = false;
-    bLimit   = false;
-    nLimit   = 0;
-    sourcef  = 's';
+    if(echoFP != NULL)
+    {
+        fclose(echoFP);
+    }
+    
+    echoFP      = NULL;
+    inptFile    = NULL;
+    tabPad      = false;
+    demark      = true;
+    number      = false;
+    limit       = false;
+    numLimit    = 0;
+    sourcef     = 's';
     
     return;
 }
+
+
+
+// Used to output stuff to the screen and, optionally, to a file.
+//
+static void out(int opt, const char * format, ...)
+{
+    // Universally, this [buffer] isn't general purpose enough - ok for eatshow though
+    // and protected by using vsnprintf below.
+    //
+    auto char buffer[100];
+
+    auto va_list ap;
+    
+    va_start(ap, format);
+
+    // Output to buffer according to what's passed in format and ap (no matter what).
+    //
+    if((unsigned)vsnprintf(buffer, sizeof buffer, format, ap) > sizeof buffer)
+    {
+        // Although the stack is protected by vsnprintf.
+        //
+        out(out_err, "function 'out' - output too long for buffer\n");
+    }
+
+    va_end(ap);
+
+    // stdout output.
+    //
+    if(opt & out_std)
+    {
+        fputs(&buffer[0], stdout);
+    }
+    
+    // File output if fp points to something.
+    //
+    if(opt & out_fle)
+    {
+            if(echoFP != NULL)
+            {
+                fputs(&buffer[0], echoFP);
+            }
+    }
+    
+    // stderr output.
+    //
+    if(opt & out_err)
+    {
+        fputs(&buffer[0], stderr);
+    }
+    
+    // Invalid flags given?
+    //
+    if(opt < 1 || opt > opt_all)
+    {
+        // Better report this!
+        //
+        out(out_err, "function 'out' called using opt value of %d: which is invalid", opt);
+    }
+
+    // Just in case.
+    //
+    fflush(stdout);
+    fflush(stderr);
+    //
+    if(echoFP)
+    {
+        fflush(echoFP);
+    }
+    
+    return;
+}
+
 
