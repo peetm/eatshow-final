@@ -1,4 +1,3 @@
-
 /*
  * Find words in the RAL version of the Edinburgh Associative Thesaurus.
  * *** EATSHOW.C ***
@@ -34,6 +33,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+
+#ifndef bool
+#define bool int
+#define true 1
+#define false 0
+#endif
 
 // Forward declarations.
 //
@@ -84,7 +89,7 @@ static int index_length = 0;
 //
 int main(int argc, char * argv[])
 {
-    auto int i;
+    int i;
             
     // Is this the first time this app's been run from this location?  Sets the global 'binitRun' to the result.
     //
@@ -123,37 +128,39 @@ int main(int argc, char * argv[])
     // The leading switches are done - but are there are other args? They
     // should be words or the -switch dbs' flag if there are.
     //
-    auto char cue[MAXBUF]; 
+    {
+        char cue[MAXBUF]; 
 
-    // i was set up in the for loop above - that loop may have exited before it
-    // reached argc's value - see ** for why.
-    //
-    // NOTE: If i < argv, we're in commandline mode.
-    //
-    if(i < argc)
-    {
-        while(i < argc)
+        // i was set up in the for loop above - that loop may have exited before it
+        // reached argc's value - see ** for why.
+        //
+        // NOTE: If i < argv, we're in commandline mode.
+        //
+        if(i < argc)
         {
-            // Also checks for runtime switches.
+            while(i < argc)
+            {
+                // Also checks for runtime switches.
+                //
+                checkForWord(argv[i++]);
+            }
+            
+            // Exit as we're all done in commandline mode.
             //
-            checkForWord(argv[i++]);
+            return 0;
         }
-        
-        // Exit as we're all done in commandline mode.
-        //
-        return 0;
-    }
-    else
-    {
-        // As printf returns the number of chars output, it works quite well
-        // when used in an && like this.
-        //
-        while(printf("Enter a word>") && !nothingEntered(gets(cue)))
+        else
         {
-            checkForWord(cue);
+            // As printf returns the number of chars output, it works quite well
+            // when used in an && like this.
+            //
+            while(printf("Enter a word>") && fgets(cue, MAXBUF, stdin) != NULL && !nothingEntered(cue))
+            {
+                checkForWord(cue);
+            }
+            
+            return 0;
         }
-        
-        return 0;
     }
 }
 
@@ -220,7 +227,7 @@ static void doFileCloseOpen(char sourcef, FILE ** fp, FILE ** fp1, int * index_l
 //
 static void out(char * out1, int count, float prop)
 {
-    auto const char * format = NULL;
+    const char * format = NULL;
     
     // Determine whether to use spaces or tabs in the output.
     //    
@@ -234,7 +241,7 @@ static void out(char * out1, int count, float prop)
     {
         // YES.
         
-        auto FILE * ech = NULL;
+        FILE * ech = NULL;
         
         if((ech = fopen(echoFile, "a")) != NULL)
         {
@@ -252,20 +259,20 @@ static void out(char * out1, int count, float prop)
 //
 static void checkForWord(char * cue)
 {
-    auto int count;
-    auto int fail     = 3;  // 3 = 'cue' word not found.
-    auto int tot_rec  = 0;
-    auto int tot_freq = 0;
+    int count;
+    int fail     = 3;  // 3 = 'cue' word not found.
+    int tot_rec  = 0;
+    int tot_freq = 0;
     
-    auto float prop   = 0;
+    float prop   = 0;
     
-	auto long int tail_address = 0;
-    auto long int head_address = 0;
+	long int tail_address = 0;
+    long int head_address = 0;
 
-    auto char * out1;
-    auto char * out2;
-    auto char response_word[MAXBUF];
-    auto char index_word   [MAXBUF];    
+    char * out1;
+    char * out2;
+    char response_word[MAXBUF];
+    char index_word   [MAXBUF];    
     
     doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
     
@@ -322,7 +329,7 @@ static void checkForWord(char * cue)
             }
             else
             {         
-                auto int nCount = 0;
+                int nCount = 0;
                 
                 out1 = NULL;
                 
@@ -347,25 +354,27 @@ static void checkForWord(char * cue)
                         }
                     }
                 
-                    auto char buffer[100];
-
-                    // Number the outputs?
-                    //
-                    if(bNumber)
                     {
-                        ++nCount;
-        
-                        sprintf(buffer, "%4d: %s", nCount, out1);
-                                        
-                        prop = ((float) count / (float) tot_freq);
-                                        
-                        out(buffer, count, prop);
-                    }
-                    else
-                    {
-                        sprintf(buffer, "      %s", out1);
+                        char buffer[100];
 
-                        out(buffer, count, prop);
+                        // Number the outputs?
+                        //
+                        if(bNumber)
+                        {
+                            ++nCount;
+            
+                            sprintf(buffer, "%4d: %s", nCount, out1);
+                                            
+                            prop = ((float) count / (float) tot_freq);
+                                            
+                            out(buffer, count, prop);
+                        }
+                        else
+                        {
+                            sprintf(buffer, "      %s", out1);
+
+                            out(buffer, count, prop);
+                        }
                     }
                 }
                 
@@ -453,7 +462,7 @@ static bool nothingEntered(char * s)
 //
 static void checkInitRun(void)
 {
-    auto FILE * fpCheck;
+    FILE * fpCheck;
     
     // Is this the first time this app has been run (from this folder)?
     //
@@ -494,10 +503,10 @@ static bool dumpWords(char * cue)
 {
     if(!strcmp(cue, "-x"))
     {
-        auto char index_word[MAXBUF];    
+        char index_word[MAXBUF];    
         
-        auto int  ndummy  = 0;
-        auto long lcount  = 0;
+        int  ndummy  = 0;
+        long lcount  = 0;
         
         doFileCloseOpen(sourcef, &fp, &fp1, &index_length);
         
@@ -622,7 +631,7 @@ static void usage(void)
 //
 static void trimLF(char * string)
 {
-    auto char * p;
+    char * p;
     
     if((p = strchr(string, (char)10)) != NULL)
     {
@@ -639,7 +648,7 @@ static void trimLF(char * string)
 //
 static void trim(char * string)
 {
-    auto char * p;
+    char * p;
     
     if((p = strchr(string, (char)' ')) != NULL)
     {
@@ -711,7 +720,7 @@ static void actOnFlag(char * f)
             }
             break;
             
-        case NULL:                  // error.
+        case '\0':                  // error.
             usage();
             exit(1);
             break;
@@ -737,17 +746,17 @@ static void actOnFlag(char * f)
 //
 void fromFile(char * s)
 {
-    auto FILE * fp = NULL;
+    FILE * fp = NULL;
 
     if((fp = fopen(s, "r")) != NULL)
     {
-        auto char * argv[10];
-        auto int    argc = 0;        
+        char * argv[10];
+        int    argc = 0;        
         
-        auto char   buffer[255];
-        auto char * p = NULL;
+        char   buffer[255];
+        char * p = NULL;
 
-        auto int    n = 0;
+        int    n = 0;
 
         // argv[0] is always the appname.
         //
@@ -834,4 +843,3 @@ static void resetFlags(void)
     
     return;
 }
-
